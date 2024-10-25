@@ -1,29 +1,97 @@
+# ------------ SERVICES ------------
 services:
-  ubuntu-nuxeo:
-    build: .
-    container_name: nuxeo-ubuntu
+  # Database
+  nx-psql:
+    image: postgres:13
+    container_name: nx-psql
     env_file: .env
-    stdin_open: true
-    tty: true
+    restart: on-failure
     ports:
-      - 8082:8080
+      - ${NX_PG_PORT}:${NX_DB_PORT}
     networks:
       - nuxeo
     volumes:
-      - ./src/client:/opt/client
-      - ./src/server:/opt/server
+      - nx-sql-data:/var/lib/postgresql/data
     environment:
+      POSTGRES_PASSWORD: ${NX_DB_PWD}
+  # Elasticsearch
+  nx-elastic:
+    image: elasticsearch:7.17.22
+    container_name: nx-elastic
+    restart: on-failure
+    ports:
+      - 9201:9200
+    networks:
+      - nuxeo
+    volumes:
+      - elastic-data:/usr/share/elasticsearch/data
+      - elastic-logs:/usr/share/elasticsearch/logs
+    environment:
+      - TZ=${TZ}
+      - node.name=${ES_NODE_NAME}
+      - cluster.name=${ES_PWD}
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ES_PWD}
+      - LICENSE=basic
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    healthcheck:
+      test: ["CMD-SHELL", "sh -c 'curl -XGET http://localhost:9200/_cat/health'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+  # Nuxeo
+  fancy-drink:
+    image: ${NX_IMG}
+    container_name: fancy-drink
+    restart: on-failure
+    env_file: .env
+    stdin_open: true
+    tty: true
+    depends_on:
+      nx-elastic:
+        condition: service_healthy
+    ports:
+      - ${NX_PORT}:8080
+    networks:
+      - nuxeo
+    volumes:
+      - nuxeo-fancy-data:/var/lib/nuxeo/data
+      - nuxeo-fancy-logs:/var/log/nuxeo
+      - nuxeo-fancy-tmp:/tmp
+      - ./src/nuxeo/packages:/packages
+      - ./src/nuxeo/config:/etc/nuxeo
+    environment:
+      # ------------ NUXEO ------------
+      JAVA_OPTS: -XshowSettings:vm
       NUXEO_DEV: ${NX_DEV}
       NUXEO_CLID: ${NX_CLID}
       NUXEO_PACKAGES: ${NX_PACKAGES}
       NUXEO_INSTALL_HOTFIX: ${NX_INSTALL_HOTFIX}
-      NUXEO_DB_TYPE: ${NX_DB_TYPE}
-      NUXEO_DB_NAME: ${NX_DB_NAME}
-      NUXEO_DB_USER: ${NX_DB_USER}
-      NUXEO_DB_PASSWORD: ${NX_DB_PASSWORD}
-      NUXEO_DB_HOST: ${NX_DB_HOST}
-      NUXEO_DB_PORT: ${NX_DB_PORT}
+  # Ubuntu
+  # ubuntu:
+  #   image: ubuntu:22.04
+  #   container_name: ubuntu
+  #   restart: on-failure
+  #   env_file: .env
+  #   stdin_open: true
+  #   tty: true
+  #   depends_on:
+  #     - nx-elastic
+  #   networks:
+  #     - nuxeo
+# ------------ NETWORKS ------------
 networks:
   nuxeo:
     driver: bridge
-    name: ubuntu-nuxeo
+    name: nuxeo
+    external: true
+      
+# ------------ VOLUMES ------------
+volumes:
+  nx-sql-data:
+  elastic-data:
+  elastic-logs:
+  nuxeo-fancy-data:
+  nuxeo-fancy-logs:
+  nuxeo-fancy-tmp:
